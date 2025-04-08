@@ -1,7 +1,4 @@
-﻿using System;
-using System.Globalization;
-using System.Linq;
-using System.Runtime;
+﻿using System.Globalization;
 using System.Text;
 using System.Windows;
 using System.Windows.Input;
@@ -18,7 +15,19 @@ namespace CalculatorApp.ViewModels
         public string ResultDisplay
         {
             get => _resultDisplay;
-            set => SetProperty(ref _resultDisplay, value);
+            set
+            {
+                if (!_isNewNumber && IsDigitGroupingEnabled && !IsProgrammerMode)
+                {
+                    if (double.TryParse(value, out double numValue))
+                    {
+                        SetProperty(ref _resultDisplay, FormatStandardNumberWithGrouping(numValue));
+                        return;
+                    }
+                }
+
+                SetProperty(ref _resultDisplay, value);
+            }
         }
 
         private string _equationDisplay = "";
@@ -371,9 +380,16 @@ namespace CalculatorApp.ViewModels
             {
                 if (_isNewNumber)
                 {
-                    ResultDisplay = (digit == '.') ? "0." : digit.ToString();
+                    if (digit == '.')
+                    {
+                        ResultDisplay = "0.";
+                        HasDecimal = true;
+                    }
+                    else
+                    {
+                        ResultDisplay = digit.ToString();
+                    }
                     _isNewNumber = false;
-                    HasDecimal = digit == '.';
                     if (_equalsPressed)
                     {
                         _equalsPressed = false;
@@ -395,7 +411,16 @@ namespace CalculatorApp.ViewModels
                         }
                         else
                         {
-                            ResultDisplay += digit;
+                            if (IsDigitGroupingEnabled)
+                            {
+                                string cleanDisplay = ResultDisplay.Replace(",", "");
+                                ResultDisplay = cleanDisplay + digit;
+
+                            }
+                            else
+                            {
+                                ResultDisplay += digit;
+                            }
                         }
                     }
                 }
@@ -621,12 +646,23 @@ namespace CalculatorApp.ViewModels
                         _lastEquation = EquationDisplay;
 
                         double result = EvaluateExpression(expression);
-                        ResultDisplay = result.ToString();
+
+                        // Store the raw result
                         _currentValue = result;
+
+                        // Apply formatting if needed
+                        if (IsDigitGroupingEnabled)
+                        {
+                            ResultDisplay = FormatStandardNumberWithGrouping(result);
+                        }
+                        else
+                        {
+                            ResultDisplay = result.ToString();
+                        }
 
                         _equalsPressed = true;
                         _isNewNumber = true;
-                        HasDecimal = false;
+                        HasDecimal = result.ToString().Contains(".");
                     }
                     return;
                 }
@@ -637,6 +673,7 @@ namespace CalculatorApp.ViewModels
                     return;
                 }
             }
+
             if (!string.IsNullOrEmpty(_currentOperation))
             {
                 try
@@ -664,11 +701,10 @@ namespace CalculatorApp.ViewModels
 
                         _equalsPressed = true;
                         _isNewNumber = true;
-                    
                     }
                     else
                     {
-                        double displayValue = double.Parse(ResultDisplay);
+                        double displayValue = double.Parse(ResultDisplay.Replace(",", ""));
 
                         if (_equalsPressed)
                         {
@@ -684,12 +720,21 @@ namespace CalculatorApp.ViewModels
                         double result = PerformCalculation(_currentValue, displayValue, _currentOperation);
 
                         _lastEquation = EquationDisplay;
-                        ResultDisplay = result.ToString();
+
                         _currentValue = result;
+
+                        if (IsDigitGroupingEnabled)
+                        {
+                            ResultDisplay = FormatStandardNumberWithGrouping(result);
+                        }
+                        else
+                        {
+                            ResultDisplay = result.ToString();
+                        }
 
                         _equalsPressed = true;
                         _isNewNumber = true;
-                        HasDecimal = false;
+                        HasDecimal = result.ToString().Contains(".");
                     }
                 }
                 catch (Exception ex)
@@ -978,6 +1023,22 @@ namespace CalculatorApp.ViewModels
             {
                 ResultDisplay = FormatNumberForBase(_currentIntValue);
             }
+            else if (!_isNewNumber)
+            {
+                try
+                {
+                    double currentValue = double.Parse(ResultDisplay.Replace(",", ""));
+                    if (isEnabled)
+                    {
+                        ResultDisplay = FormatStandardNumberWithGrouping(currentValue);
+                    }
+                    else
+                    {
+                        ResultDisplay = currentValue.ToString();
+                    }
+                }
+                catch {}
+            }
         }
 
         private void HandleKeyInput(Key key)
@@ -1139,6 +1200,28 @@ namespace CalculatorApp.ViewModels
                 _currentIntValue = 0;
                 ResultDisplay = "0";
             }
+        }
+
+        private string FormatStandardNumberWithGrouping(double number)
+        {
+            if (double.IsInfinity(number) || double.IsNaN(number) ||
+                Math.Abs(number) >= 1e16 || (Math.Abs(number) < 0.0001 && number != 0))
+            {
+                return number.ToString();
+            }
+
+            string result = number.ToString("N", CultureInfo.CurrentCulture);
+
+            if (result.Contains(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator))
+            {
+                result = result.TrimEnd('0');
+                if (result.EndsWith(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator))
+                {
+                    result = result.TrimEnd(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator[0]);
+                }
+            }
+
+            return result;
         }
 
         private string FormatNumberForBase(long number)
